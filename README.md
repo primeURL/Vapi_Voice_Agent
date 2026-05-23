@@ -161,6 +161,20 @@ ngrok http 3000
 > This tells Vapi to send call results (transcript, summary, recording) to
 > your backend after every call ends.
 
+### How the EJS dashboard works
+1. When you open `/` or `/dashboard`, Express routes the request to the dashboard controller.
+2. The controller reads call logs and stats from PostgreSQL.
+3. It renders `views/dashboard.ejs` on the server with `res.render(...)`.
+4. EJS replaces tags like `<%= stats.totalCalls %>` and loops through `logs` to build the HTML page.
+5. So the dashboard is server-rendered first, and the browser receives ready-made HTML.
+
+### How the webhook works here
+1. Vapi finishes a call and sends the final call payload to `POST /vapi/call-ended`.
+2. The backend checks that the payload is the final end-of-call report.
+3. It normalizes fields like transcript, summary, intent, caller number, and duration.
+4. The normalized call data is saved into PostgreSQL.
+5. When you refresh the EJS dashboard, it reads the latest saved rows and shows them.
+
 ---
 
 ## PART 6 — Testing
@@ -248,11 +262,13 @@ To allow **any number in the world** to call your Twilio number:
 ## Quick Reference
 
 ```
-Twilio Console    → https://console.twilio.com
-Vapi Dashboard    → https://dashboard.vapi.ai
-Your Twilio No.   → +1 541 834 9925
-Vapi Webhook URL  → https://api.vapi.ai/twilio/inbound_call
-Backend Endpoint  → POST /vapi/call-ended
-Calls List        → GET  /vapi/calls
-Health Check      → GET  /health
+Twilio Console      → https://console.twilio.com
+Vapi Dashboard      → https://dashboard.vapi.ai
+Your Twilio No.     → +1 541 834 9925
+Vapi Webhook URL    → https://api.vapi.ai/twilio/inbound_call
+Frontend Dashboard  → GET  /
+Dashboard Page      → GET  /dashboard
+Calls API           → GET  /api/calls
+Webhook Endpoint    → POST /vapi/call-ended
+Health Check        → GET  /health
 ```

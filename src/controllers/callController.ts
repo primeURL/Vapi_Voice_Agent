@@ -31,7 +31,6 @@ export async function handleCallEnded(req: Request, res: Response): Promise<void
       return;
     }
 
-    console.log("Processing call-ended webhook with payload:", JSON.stringify(payload));
     const normalized = await saveCallEndedPayload(payload);
 
     res.status(200).json({

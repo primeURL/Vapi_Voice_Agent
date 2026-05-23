@@ -12,18 +12,33 @@ function parsePositiveInt(value: unknown, defaultValue: number): number {
   return parsed;
 }
 
+function getPaginationParams(query: Request["query"]): { page: number; limit: number } {
+  return {
+    page: parsePositiveInt(query.page, 1),
+    limit: parsePositiveInt(query.limit, 10),
+  };
+}
+
+async function loadDashboardData(page: number, limit: number): Promise<{
+  logsResult: Awaited<ReturnType<typeof getPaginatedCallLogs>>;
+  stats: Awaited<ReturnType<typeof getCallStats>>;
+  totalPages: number;
+}> {
+  const offset = (page - 1) * limit;
+  const [logsResult, stats] = await Promise.all([
+    getPaginatedCallLogs({ limit, offset }),
+    getCallStats(),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(logsResult.total / limit));
+
+  return { logsResult, stats, totalPages };
+}
+
 export async function renderDashboard(req: Request, res: Response): Promise<void> {
   try {
-    const page = parsePositiveInt(req.query.page, 1);
-    const limit = parsePositiveInt(req.query.limit, 10);
-    const offset = (page - 1) * limit;
-
-    const [logsResult, stats] = await Promise.all([
-      getPaginatedCallLogs({ limit, offset }),
-      getCallStats(),
-    ]);
-
-    const totalPages = Math.max(1, Math.ceil(logsResult.total / limit));
+    const { page, limit } = getPaginationParams(req.query);
+    const { logsResult, stats, totalPages } = await loadDashboardData(page, limit);
 
     res.render("dashboard", {
       logs: logsResult.items,
@@ -41,14 +56,8 @@ export async function renderDashboard(req: Request, res: Response): Promise<void
 
 export async function getPaginatedCalls(req: Request, res: Response): Promise<void> {
   try {
-    const page = parsePositiveInt(req.query.page, 1);
-    const limit = parsePositiveInt(req.query.limit, 10);
-    const offset = (page - 1) * limit;
-
-    const [logsResult, stats] = await Promise.all([
-      getPaginatedCallLogs({ limit, offset }),
-      getCallStats(),
-    ]);
+    const { page, limit } = getPaginationParams(req.query);
+    const { logsResult, stats } = await loadDashboardData(page, limit);
 
     res.status(200).json({
       success: true,

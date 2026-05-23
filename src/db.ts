@@ -5,7 +5,7 @@ import { config } from "./config";
 export const db = new Pool({
   connectionString: config.databaseUrl,
   ssl: {
-    rejectUnauthorized: false,
+    rejectUnauthorized: true,
   },
 });
 
@@ -166,6 +166,34 @@ export async function insertCallLog(params: {
       params.transcript,
       JSON.stringify(params.rawPayload),
     ],
+  );
+}
+
+export async function getSmsDeliveryStatus(callId: string): Promise<boolean | null> {
+  const result = await db.query(
+    `
+    SELECT sms_delivered
+    FROM call_logs
+    WHERE call_id = $1
+    `,
+    [callId],
+  );
+
+  return result.rows[0]?.sms_delivered ?? null;
+}
+
+export async function updateCallLogSmsStatus(params: {
+  callId: string;
+  smsDelivered: boolean;
+}): Promise<void> {
+  await db.query(
+    `
+    UPDATE call_logs
+    SET sms_delivered = $2,
+        updated_at = NOW()
+    WHERE call_id = $1
+    `,
+    [params.callId, params.smsDelivered],
   );
 }
 

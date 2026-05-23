@@ -1,7 +1,28 @@
-import { insertCallLog } from "../db";
+import { getSmsDeliveryStatus, insertCallLog, updateCallLogSmsStatus } from "../db";
 import { NormalizedCallRecord, VapiCallEndedPayload } from "../types";
 import { sendEmergencyAlert } from "./emergencyAlertService";
 import { detectIntent, isEmergencyByKeywords } from "../utils/intent";
+
+const rawTimeoutMs = Number(process.env.OPERATION_TIMEOUT_MS);
+const OPERATION_TIMEOUT_MS = Number.isFinite(rawTimeoutMs) && rawTimeoutMs > 0 ? rawTimeoutMs : 8000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
 
 function toText(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) {
@@ -189,23 +210,7 @@ export async function saveCallEndedPayload(payload: VapiCallEndedPayload): Promi
   const resolvedCallId = resolveCallId(payload);
   const normalized = normalizePayload(payload, resolvedCallId);
 
-  let smsDelivered: boolean | null = null;
-  if (normalized.isEmergency) {
-    try {
-      smsDelivered = await sendEmergencyAlert({
-        callerPhone: normalized.callerPhone,
-        serviceNeeded: normalized.serviceNeeded,
-        addressOrCity: normalized.addressOrCity,
-        customerName: normalized.customerName,
-        callId: normalized.callId,
-      });
-    } catch (error) {
-      smsDelivered = false;
-      console.error("Emergency SMS alert failed:", error);
-    }
-  }
-
-  await insertCallLog({
+  await withTimeout(insertCallLog({
     callId: normalized.callId,
     callerPhone: normalized.callerPhone,
     startedAt: normalized.startedAt,
@@ -219,11 +224,68 @@ export async function saveCallEndedPayload(payload: VapiCallEndedPayload): Promi
     addressOrCity: normalized.addressOrCity,
     preferredTime: normalized.preferredTime,
     isEmergency: normalized.isEmergency,
-    smsDelivered,
+    smsDelivered: null,
     summary: normalized.summary,
     transcript: normalized.transcript,
     rawPayload: payload,
-  });
+  }), OPERATION_TIMEOUT_MS, "Insert call log");
+
+  let smsDelivered: boolean | null = null;
+  if (normalized.isEmergency) {
+    try {
+      let existingSmsStatus: boolean | null = null;
+      try {
+        existingSmsStatus = await withTimeout(
+          getSmsDeliveryStatus(normalized.callId),
+          OPERATION_TIMEOUT_MS,
+          "Read SMS delivery status",
+        );
+      } catch (error) {
+        console.error("Failed to read SMS delivery status", error);
+      }
+
+      if (existingSmsStatus === true) {
+        smsDelivered = true;
+      } else {
+        smsDelivered = await withTimeout(
+          sendEmergencyAlert({
+            callerPhone: normalized.callerPhone,
+            serviceNeeded: normalized.serviceNeeded,
+            addressOrCity: normalized.addressOrCity,
+            customerName: normalized.customerName,
+            callId: normalized.callId,
+          }),
+          OPERATION_TIMEOUT_MS,
+          "Send emergency SMS",
+        );
+
+        await withTimeout(
+          updateCallLogSmsStatus({
+            callId: normalized.callId,
+            smsDelivered,
+          }),
+          OPERATION_TIMEOUT_MS,
+          "Update SMS delivery status",
+        );
+      }
+    } catch (error) {
+      smsDelivered = false;
+      console.error("Emergency SMS alert failed:", error);
+
+      try {
+        await withTimeout(
+          updateCallLogSmsStatus({
+            callId: normalized.callId,
+            smsDelivered,
+          }),
+          OPERATION_TIMEOUT_MS,
+          "Update SMS delivery status after failure",
+        );
+      } catch (updateError) {
+        console.error("Failed to update SMS delivery status", updateError);
+      }
+    }
+  }
 
   normalized.smsDelivered = smsDelivered;
 

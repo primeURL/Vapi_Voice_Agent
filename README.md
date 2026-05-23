@@ -272,3 +272,34 @@ Calls API           → GET  /api/calls
 Webhook Endpoint    → POST /vapi/call-ended
 Health Check        → GET  /health
 ```
+
+## Production checklist
+
+1. HMAC & webhook authentication
+   - Require HMAC signature on incoming webhooks and verify using a shared secret (`WEBHOOK_SECRET`).
+
+1.a Runtime payload validation
+   - Do not cast `req.body` directly. Validate payload shape at runtime (use `zod` or `joi`) before using fields.
+
+1.b Timeouts
+   - Keep webhook handlers fast; acknowledge early and process heavy work asynchronously. Configure `WEBHOOK_TIMEOUT_MS` and reasonable DB/HTTP timeouts.
+
+1.c Retry-safe upserts
+   - Webhook retries can arrive with partial data. Avoid `ON CONFLICT DO UPDATE` that blindly sets values to `NULL`.
+   - Use conditional updates (e.g., `COALESCE(EXCLUDED.field, table.field)`) or an `is_complete` flag and idempotent merge logic keyed by `call_id`.
+
+2. Pricing & prompt management
+   - Avoid editing prompts for every pricing change. Keep pricing in a config or small datastore and reference it when generating assistant prompts; document the manual update flow.
+
+3. Caller number handling
+   - Vapi payload usually contains the caller number; consider skipping redundant prompts and only ask for an alternate contact if missing.
+
+4. Call termination & loops
+   - Implement loop detection and a graceful end-of-call message (and hang up) when conversation is circular or exceeds duration limits.
+
+5. Twilio call logs
+   - Consume Twilio Call Logs (API or webhook) to reconcile failed calls and enrich records.
+
+Notes
+- Add structured logs and metrics for observability (webhook latency, signature failures, retry counts).
+- Add automated tests for signature verification and schema validation.

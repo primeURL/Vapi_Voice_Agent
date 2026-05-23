@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { renderDashboard, getPaginatedCalls } from "../controllers/dashboardController";
+import { getPaginatedCalls, renderDashboard } from "../controllers/dashboardController";
 
 const router = Router();
 

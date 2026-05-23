@@ -8,7 +8,6 @@ import dashboardRoutes from "./routes/dashboardRoutes";
 
 const app = express();
 
-// Configure views engine and directory
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "../views"));
 
